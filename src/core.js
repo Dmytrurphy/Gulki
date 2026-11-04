@@ -1,6 +1,12 @@
-/* Gulki 0.2.0 — MIT. Public movie search; no bundled credentials. */
+/* Gulki 0.3.0 — MIT. Public movie search; no bundled credentials. */
 (function (root) {
 'use strict';
+function movieQuery(movie, withYear) {
+ movie=movie || {};
+ var title=String(movie.original_title || movie.title || '').trim();
+ var year=(String(movie.release_date || '').match(/^(19\d{2}|20\d{2})/) || [])[1];
+ return title + (withYear && title && year ? ' ' + year : '');
+}
 function clean(s) { return String(s || '').replace(/[<>]/g, '').slice(0, 500); }
 function norm(s) { return clean(s).toLowerCase().replace(/[._]/g, ' ').replace(/\s+/g, ' ').trim(); }
 function http(s) { return /^https?:\/\/[^\s/@]+(?::\d+)?(?:\/[^\s]*)?$/i.test(s); }
@@ -68,5 +74,5 @@ function search(sources, query, request, done) {
   if (!--pending) done(rows,errors);
  },s);});
 }
-root.GulkiCore = {normalize:normalize,group:group,validate:validate,requestUrl:requestUrl,search:search,clean:clean,tpbSource:tpbSource,tpbRelease:tpbRelease};
+root.GulkiCore = {normalize:normalize,group:group,validate:validate,requestUrl:requestUrl,search:search,clean:clean,tpbSource:tpbSource,tpbRelease:tpbRelease,movieQuery:movieQuery};
 })(typeof window !== 'undefined' ? window : globalThis);
