@@ -48,16 +48,26 @@ test('TPB ignores no-results sentinel, invalid hashes and other categories',()=>
 test('TPB passes source to transport and accepts result arrays',()=>{
  C.search(C.validate([C.tpbSource()]),'Fixture',(u,cb,s)=>{assert.equal(s.type,'tpb');cb(null,[tpbFixture,null,{id:'0'}]);},(rows,errors)=>{assert.equal(rows.length,1);assert.equal(errors.length,0);});
 });
-function nativeUI(){
- let current,entry,payload,cb,err,cleared=0,clock,settingsWrites=[];
- const values={gulki_sources:[],parser_torrent_type:'jacred'};
+function nativeUI(options={}){
+ let current,entry,payload,cb,err,cleared=0,clock,settingsWrites=[],listeners={},cardButton,playback,controller;
+ const values={gulki_sources:options.sources || [],parser_torrent_type:'jacred'};
  const chain={length:1,first(){return this;},on(e,f){entry=f;return this;},append(){return this;}};
- function $(s){return s.startsWith('.menu__item')?{length:0}:chain;}
+ function $(s){
+  if(s.includes('gulki-full-button')){cardButton={length:1,on(e,f){this.enter=f;return this;}};return cardButton;}
+  return s.startsWith('.menu__item')?{length:0}:chain;
+ }
  function Request(){this.timeout=()=>{};this.native=(url,success,fail)=>{payload=url;cb=success;err=fail;};this.clear=()=>cleared++;}
- const L={Storage:{get:(k,d)=>values[k]??d,set:(k,v)=>{values[k]=v;settingsWrites.push(k);}},Select:{show:o=>current=o},Controller:{toggle(){}},Noty:{show(){}},Input:{edit:(o,f)=>f('Fixture')},Platform:{is:p=>p==='android'},Reguest:Request,Torrent:{start(){}}};
+ const L={Storage:{get:(k,d)=>values[k]??d,set:(k,v)=>{values[k]=v;settingsWrites.push(k);}},Select:{show:o=>current=o},Controller:{toggle:c=>controller=c},Noty:{show(){}},Input:{edit:(o,f)=>f('Fixture')},Platform:{is:p=>p==='android'},Reguest:Request,Torrent:{start:(...args)=>playback=args},Listener:{follow:(name,fn)=>listeners[name]=fn}};
  const ctx={Lampa:L,jQuery:$,appready:true,setTimeout:f=>{clock=f;return 1;},clearTimeout:()=>{},XMLHttpRequest:()=>assert.fail('Native transport required')};ctx.window=ctx;
  vm.createContext(ctx);vm.runInContext(fs.readFileSync(path.join(base,'plugin.js'),'utf8'),ctx);entry();
- return {choose(t){const i=current.items.find(i=>i.title.includes(t));assert.ok(i,t);current.onSelect(i);},success(data){cb(data);},fail(){err();},timeout(){clock();},get current(){return current;},get values(){return values;},get cleared(){return cleared;},get payload(){return payload;},get writes(){return settingsWrites;}};
+ return {card(movie,legacy){
+  let added=0;
+  const body={find(sel){if(sel==='.gulki-full-button')return {length:added};return {length:1,first(){return this;},append(){added++;}};}};
+  const event={type:'complite',data:{movie},body};
+  if(legacy){delete event.body;event.object={activity:{render:()=>body}};}
+  listeners.full(event);listeners.full(event);
+  return {get count(){return added;},enter(){assert.ok(cardButton);cardButton.enter();}};
+ },get playback(){return playback;},get controller(){return controller;},choose(t){const i=current.items.find(i=>i.title.includes(t));assert.ok(i,t);current.onSelect(i);},success(data){cb(data);},fail(){err();},timeout(){clock();},get current(){return current;},get values(){return values;},get cleared(){return cleared;},get payload(){return payload;},get writes(){return settingsWrites;}};
 }
 test('TPB one-click search uses Android native transport without credentials',()=>{
  const u=nativeUI();u.choose('The Pirate Bay');assert.ok(u.payload.startsWith('https://apibay.org/q.php?'));u.success(JSON.stringify([tpbFixture]));
@@ -73,5 +83,33 @@ test('TPB timeout and malformed JSON end loading',()=>{
 test('TPB reconnect reuses existing source',()=>{
  const u=nativeUI();u.choose('The Pirate Bay');u.fail();u.current.onBack();u.choose('The Pirate Bay');assert.equal(u.values.gulki_sources.length,1);u.fail();
 });
+
+test('card query prefers original title and movie release year',()=>{
+ assert.equal(C.movieQuery({title:'Локальное',original_title:'Original Movie',release_date:'2024-04-01'},true),'Original Movie 2024');
+ assert.equal(C.movieQuery({title:'Local',release_date:'unknown'},true),'Local');
+ assert.equal(C.movieQuery({title:'Local',release_date:'2024-04-01'},false),'Local');
+ assert.equal(C.movieQuery({},true),'');
+});
+const cardMovie={id:99,title:'Локальное название',original_title:'Original Movie',release_date:'2024-04-01',poster_path:'/fixture.jpg'};
+test('full card adds one source button and searches only selected TPB source',()=>{
+ const u=nativeUI({sources:[{type:'json',name:'Own source',url:'https://own.test/?q={query}',enabled:true}]});
+ const card=u.card(cardMovie);assert.equal(card.count,1);card.enter();assert.ok(u.current.items.some(i=>i.title==='Own source'));
+ u.choose('The Pirate Bay');assert.ok(u.payload.includes('q=Original%20Movie%202024'));assert.deepEqual(u.writes,[]);
+ u.success([tpbFixture]);assert.ok(u.current.title.includes('Локальное название'));u.choose('Fixture Movie');u.choose('1080p');u.choose('Fixture Movie');assert.equal(u.playback[1],cardMovie);
+});
+test('card result offers retry without year and localized title',()=>{
+ const u=nativeUI();u.card(cardMovie).enter();u.choose('The Pirate Bay');u.success([{id:'0'}]);
+ u.choose('Искать без года');assert.ok(u.payload.includes('q=Original%20Movie&'));u.success([]);
+ u.choose('Искать по названию');assert.ok(u.payload.includes(encodeURIComponent(cardMovie.title)));u.success([]);
+});
+test('card back returns to source picker then movie controller',()=>{
+ const u=nativeUI();u.card(cardMovie).enter();u.choose('The Pirate Bay');u.choose('Отменить');assert.ok(u.current.title.includes('где искать'));u.current.onBack();assert.equal(u.controller,'full_start');
+ u.success([tpbFixture]);assert.ok(u.current.title.includes('где искать'));
+});
+test('legacy card render is supported and disabled custom sources hidden',()=>{
+ const u=nativeUI({sources:[{type:'json',name:'Disabled',url:'https://own.test/?q={query}',enabled:false}]});
+ const c=u.card(cardMovie,true);assert.equal(c.count,1);c.enter();assert.equal(u.current.items.length,1);
+});
+test('cards without movie title receive no button',()=>{const u=nativeUI();assert.equal(u.card({name:'TV fixture'}).count,0);});
 
 console.log(count+' tests passed');
