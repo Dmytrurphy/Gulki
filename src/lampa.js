@@ -10,12 +10,31 @@ function input(title,value,done,previous){
  L.Input.edit({title:title,value:value,free:true,nosave:true},function(v){done(String(v||'').trim());},previous||home);
 }
 function cancel(){generation++;var old=requests.slice();requests=[];old.forEach(function(x){x.abort();});}
-function request(url,cb){
+function request(url,cb,source){
+ if(source && source.type==='tpb' && L.Reguest && L.Platform && L.Platform.is('android')) {
+  var network=new L.Reguest(), ended=false, timer, handle={abort:function(){network.clear();finish('отменено');}};
+  function finish(err,data){
+   if(ended)return;ended=true;root.clearTimeout(timer);
+   var i=requests.indexOf(handle);if(i>=0)requests.splice(i,1);
+   cb(err,data);
+  }
+  requests.push(handle);
+  timer=root.setTimeout(function(){network.clear();finish('тайм-аут');},20000);
+  try {
+   network.timeout(20000);
+   network.native(url,function(data){
+    if(typeof data==='string'){try{data=JSON.parse(data);}catch(e){finish('ответ не JSON');return;}}
+    finish(null,data);
+   },function(){finish('The Pirate Bay недоступен: сеть / ограничение источника');});
+  }catch(e){network.clear();finish('нативный запрос недоступен в этой сборке Lampa');}
+  return;
+ }
+
  var x=new XMLHttpRequest(), finished=false;
  function end(err,data){if(finished)return;finished=true;var i=requests.indexOf(x);if(i>=0)requests.splice(i,1);cb(err,data);}
  requests.push(x);x.open('GET',url,true);x.timeout=20000;
  x.onload=function(){if(x.status<200||x.status>=300)return end('HTTP '+x.status);try{end(null,JSON.parse(x.responseText));}catch(e){end('ответ не JSON');}};
- x.onerror=function(){end('сеть / CORS');};x.ontimeout=function(){end('тайм-аут');};x.onabort=function(){end('отменено');};try{x.send();}catch(e){end('запрос заблокирован');}
+ x.onerror=function(){end(source && source.type==='tpb'?'The Pirate Bay: сеть / CORS. Попробуйте приложение Lampa Android TV':'сеть / CORS');};x.ontimeout=function(){end('тайм-аут');};x.onabort=function(){end('отменено');};try{x.send();}catch(e){end('запрос заблокирован');}
 }
 function sources(){try{return C.validate(L.Storage.get('gulki_sources',[]));}catch(e){notify(e.message);return [];}}
 function load(q){
@@ -55,8 +74,14 @@ function qualities(g,previous){
   }};}),function(){qualities(g,previous);});
  }};}),previous);
 }
+function addTpb(){
+ var a=sources(), existing=a.filter(function(s){return s.type==='tpb';})[0];
+ if(existing)existing.enabled=true;else a.push(C.tpbSource());
+ try{L.Storage.set('gulki_sources',C.validate(a));return true;}catch(e){notify(e.message);return false;}
+}
 function settings(){
  select('Источники Гульки',[
+  {title:'Добавить The Pirate Bay — без ключа',run:function(){if(addTpb())notify('The Pirate Bay подключён');settings();}},
   {title:'Добавить Jackett',run:function(){input('Название источника','',function(name){input('URL Jackett (http://…:9117)','',function(url){input('Индексатор (all или ID)','all',function(id){input('API-ключ (сохранится только на устройстве)','',function(key){
    var a=sources();a.push({name:name,type:'jackett',url:url,indexer:id,apiKey:key});save(a);
   },settings);},settings);},settings);},settings);}},
@@ -66,11 +91,12 @@ function settings(){
 }
 function save(a){try{L.Storage.set('gulki_sources',C.validate(a));notify('Сохранено на устройстве');settings();}catch(e){notify(e.message);settings();}}
 function home(){select('Гульки',[
+ {title:'The Pirate Bay — поиск без ключа',run:function(){if(addTpb())input('Поиск фильмов The Pirate Bay','',load);}},
  {title:'Каталог',run:catalog},
  {title:'Поиск',run:function(){input('Название фильма','',load);}},
  {title:'Обновить каталог из источников',run:function(){load('');}},
  {title:'Источники',run:settings},
- {title:'О плагине',run:function(){notify('Гульки 0.1.0. Независимые источники; проигрывание через Lampa. Фильтры применяются к загруженным результатам.');home();}}
+ {title:'О плагине',run:function(){notify('Гульки 0.2.0. Независимые источники; проигрывание через Lampa. Фильтры применяются к загруженным результатам.');home();}}
 ],back);}
 function install(){
  if($('.menu__item[data-action="gulki"]').length)return;
