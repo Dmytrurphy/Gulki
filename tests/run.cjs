@@ -31,4 +31,47 @@ function choose(text){const item=current.items.find(x=>x.title.includes(text));a
 test('menu -> search -> catalog -> quality -> Lampa playback',()=>{assert.equal(menuAdded,1);entered();choose('Поиск');choose('Film');choose('1080p');choose('Film');assert.equal(playback[0].MagnetUri,magnet);assert.equal(playback[1].title,'Film');});
 test('existing parser configuration untouched',()=>{assert.equal(stored.parser_torrent_type,'jacred');assert.equal(stored.jackett_url,'UNCHANGED');assert.deepEqual(writes,[]);});
 test('double plugin load installs only once',()=>{vm.runInContext(fs.readFileSync(path.join(base,'plugin.js'),'utf8'),ui);assert.equal(menuAdded,1);});
+test('TPB needs no key and pins its public endpoint',()=>{
+ const s=C.validate([C.tpbSource()])[0];assert.equal(s.apiKey,'');assert.equal(C.validate([{type:'tpb',url:'https://other.test'}])[0].url,'https://apibay.org');
+ assert.equal(C.requestUrl(s,'Big & Bunny'),'https://apibay.org/q.php?q=Big%20%26%20Bunny&cat=201,202,207,209,210,211');
+ assert.equal(C.requestUrl(s,''),'https://apibay.org/precompiled/data_top100_200.json');
+});
+const tpbFixture={id:'123',name:'Fixture Movie (2024) 1080p',info_hash:'C'.repeat(40),category:'207',seeders:'12',size:'1073741824',imdb:'tt1234567'};
+test('TPB maps hash, seeds, size and IMDb',()=>{
+ const r=C.tpbRelease(tpbFixture);assert.ok(r.magnet.startsWith('magnet:?xt=urn:btih:'+'c'.repeat(40)));assert.equal(r.movieId,'imdb:tt1234567');
+ const n=make(r);assert.equal(n.seeds,12);assert.equal(n.size,1073741824);assert.equal(n.quality,'1080p');
+});
+test('TPB ignores no-results sentinel, invalid hashes and other categories',()=>{
+ assert.equal(C.tpbRelease({...tpbFixture,id:'0'}),null);assert.equal(C.tpbRelease({...tpbFixture,info_hash:'invalid'}),null);
+ assert.equal(C.tpbRelease({...tpbFixture,category:'301'}),null);assert.equal(C.tpbRelease({...tpbFixture,category:'501'}),null);
+});
+test('TPB passes source to transport and accepts result arrays',()=>{
+ C.search(C.validate([C.tpbSource()]),'Fixture',(u,cb,s)=>{assert.equal(s.type,'tpb');cb(null,[tpbFixture,null,{id:'0'}]);},(rows,errors)=>{assert.equal(rows.length,1);assert.equal(errors.length,0);});
+});
+function nativeUI(){
+ let current,entry,payload,cb,err,cleared=0,clock,settingsWrites=[];
+ const values={gulki_sources:[],parser_torrent_type:'jacred'};
+ const chain={length:1,first(){return this;},on(e,f){entry=f;return this;},append(){return this;}};
+ function $(s){return s.startsWith('.menu__item')?{length:0}:chain;}
+ function Request(){this.timeout=()=>{};this.native=(url,success,fail)=>{payload=url;cb=success;err=fail;};this.clear=()=>cleared++;}
+ const L={Storage:{get:(k,d)=>values[k]??d,set:(k,v)=>{values[k]=v;settingsWrites.push(k);}},Select:{show:o=>current=o},Controller:{toggle(){}},Noty:{show(){}},Input:{edit:(o,f)=>f('Fixture')},Platform:{is:p=>p==='android'},Reguest:Request,Torrent:{start(){}}};
+ const ctx={Lampa:L,jQuery:$,appready:true,setTimeout:f=>{clock=f;return 1;},clearTimeout:()=>{},XMLHttpRequest:()=>assert.fail('Native transport required')};ctx.window=ctx;
+ vm.createContext(ctx);vm.runInContext(fs.readFileSync(path.join(base,'plugin.js'),'utf8'),ctx);entry();
+ return {choose(t){const i=current.items.find(i=>i.title.includes(t));assert.ok(i,t);current.onSelect(i);},success(data){cb(data);},fail(){err();},timeout(){clock();},get current(){return current;},get values(){return values;},get cleared(){return cleared;},get payload(){return payload;},get writes(){return settingsWrites;}};
+}
+test('TPB one-click search uses Android native transport without credentials',()=>{
+ const u=nativeUI();u.choose('The Pirate Bay');assert.ok(u.payload.startsWith('https://apibay.org/q.php?'));u.success(JSON.stringify([tpbFixture]));
+ assert.ok(u.current.items.some(i=>i.title==='Fixture Movie'));assert.equal(u.values.gulki_sources[0].apiKey,'');assert.equal(u.values.parser_torrent_type,'jacred');assert.deepEqual(u.writes,['gulki_sources']);
+});
+test('TPB cancel aborts native request and ignores late completion',()=>{
+ const u=nativeUI();u.choose('The Pirate Bay');u.choose('Отменить');assert.equal(u.cleared,1);u.success([tpbFixture]);assert.equal(u.current.title,'Гульки');
+});
+test('TPB timeout and malformed JSON end loading',()=>{
+ const u=nativeUI();u.choose('The Pirate Bay');u.timeout();assert.equal(u.cleared,1);assert.ok(u.current.title.includes('каталог'));
+ const v=nativeUI();v.choose('The Pirate Bay');v.success('<html>blocked</html>');assert.ok(v.current.title.includes('каталог'));
+});
+test('TPB reconnect reuses existing source',()=>{
+ const u=nativeUI();u.choose('The Pirate Bay');u.fail();u.current.onBack();u.choose('The Pirate Bay');assert.equal(u.values.gulki_sources.length,1);u.fail();
+});
+
 console.log(count+' tests passed');
