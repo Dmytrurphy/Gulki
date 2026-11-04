@@ -19,7 +19,9 @@
 3. Откройте Actions → Verify and publish Gulki и дождитесь успешной проверки и публикации. При первом добавлении workflow в `main` запуск произойдёт автоматически; повторный запуск доступен через Run workflow. После успешной публикации проверьте адрес `https://ВАШ-ЛОГИН.github.io/ВАШ-РЕПОЗИТОРИЙ/plugin.js`: должен открываться JavaScript, а не HTML/404.
 4. Добавьте этот адрес в плагины Lampa, перезапустите приложение. Откройте «Гульки» → «Источники».
 
-Это шаблон адреса. Публикация в аккаунт GitHub в рамках этой работы не выполнялась.
+Готовая ссылка для установки в Lampa: https://dmytrurphy.github.io/Gulki/plugin.js
+
+Первая публикация через GitHub Actions завершилась успешно: https://github.com/Dmytrurphy/Gulki/actions/runs/41906552337 . Содержимое файла на Pages сверено с проверенной сборкой побайтно. Проверка на реальном Android TV и TorrServer остаётся отдельным шагом.
 
 ## Источники
 
@@ -72,4 +74,4 @@ node tests/run.cjs
 
 Workflow `.github/workflows/pages.yml` собирает плагин, проверяет соответствие исходников готовому файлу и запускает тесты. Только после успешных проверок ветка `main` публикуется в Pages. Для pull request выполняются проверки без публикации. В публичный результат попадают только `plugin.js`, `LICENSE` и `.nojekyll`. Рабочие настройки и API-ключи в репозиторий добавлять не нужно.
 
-Если основная ветка называется иначе, замените `main` в workflow на её имя. Автоматическая публикация подготовлена по документации GitHub: https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages . Удалённый запуск workflow ещё не проверен.
+Если основная ветка называется иначе, замените `main` в workflow на её имя. Автоматическая публикация подготовлена по документации GitHub: https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages . Удалённый запуск workflow проверен: сборка, тесты и публикация завершились успешно.
